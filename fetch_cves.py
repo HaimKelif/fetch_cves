@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import os
 import logging
 import concurrent.futures
-import nvd_api
+import nvd_api_caller
 import time
 
 
@@ -87,7 +87,7 @@ def fetch_cves_and_save(
     @output: None
     """
     save_cves(
-        nvd_api.get_cves(start_date, end_date, start_index),
+        nvd_api_caller.get_cves(start_date, end_date, start_index),
         output_directory,
         end_date,
         start_index,
@@ -109,7 +109,7 @@ def download_cves_threaded(
     ) as executor:
         for date_chunk in date_chunks:
             time.sleep(SECONDS / MAX_REQUESTS_PER_30_SECONDS)
-            total_results_in_this_chunck = nvd_api.get_total_results(date_chunk[0], date_chunk[1])
+            total_results_in_this_chunck = nvd_api_caller.get_total_results(date_chunk[0], date_chunk[1])
             if total_results_in_this_chunck > 0:
                 for index in range(0, total_results_in_this_chunck, RESULTS_PER_PAGE):
                     time.sleep(SECONDS / MAX_REQUESTS_PER_30_SECONDS)

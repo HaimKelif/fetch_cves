@@ -1,7 +1,7 @@
 import os
 import json
 import fetch_cves
-import nvd_api
+import nvd_api_caller
 import calculates_data as calc
 from datetime import datetime
 
@@ -77,7 +77,7 @@ def test_fetch_cves_and_save():
 
 def test_get_total_results():
     """Test fetching the total results for a date range."""
-    total_results = nvd_api.get_total_results(
+    total_results = nvd_api_caller.get_total_results(
         datetime(2023, 9, 8), datetime(2023, 9, 9)
     )
 

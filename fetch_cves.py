@@ -109,9 +109,9 @@ def download_cves_threaded(
     ) as executor:
         for date_chunk in date_chunks:
             time.sleep(SECONDS / MAX_REQUESTS_PER_30_SECONDS)
-            total_results = nvd_api.get_total_results(date_chunk[0], date_chunk[1])
-            if total_results > 0:
-                for index in range(0, total_results, RESULTS_PER_PAGE):
+            total_results_in_this_chunck = nvd_api.get_total_results(date_chunk[0], date_chunk[1])
+            if total_results_in_this_chunck > 0:
+                for index in range(0, total_results_in_this_chunck, RESULTS_PER_PAGE):
                     time.sleep(SECONDS / MAX_REQUESTS_PER_30_SECONDS)
                     executor.submit(
                         fetch_cves_and_save,
@@ -130,16 +130,16 @@ def fetch_cves(days_back: int = MAX_DAYS_RANGE_API, output_directory: str = "cve
     @params: days_back: int, output_directory: str (Typer)
     @output: None
     """
-    current_today = datetime.now()
+    current_day = datetime.now()
 
     os.makedirs(output_directory, exist_ok=True)
 
     day_chunks = date_chunks_by_api_size(
-        current_today - timedelta(days=days_back), current_today
+        current_day - timedelta(days=days_back), current_day
     )
 
     logging.info(
-        f"Downloading CVEs for {(current_today - timedelta(days=days_back)).date()} to {current_today.date()}"
+        f"Downloading CVEs for {(current_day - timedelta(days=days_back)).date()} to {current_day.date()}"
     )
 
     download_cves_threaded(day_chunks, output_directory)

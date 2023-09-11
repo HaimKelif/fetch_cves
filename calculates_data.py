@@ -23,7 +23,7 @@ def load_cve_data(cve_data_directory: str) -> list[dict]:
             try:
                 with open(os.path.join(cve_data_directory, filename), "r") as f:
                     data = json.load(f)
-                    cve_data.extend(data.get("vulnerabilities", []))
+                    cve_data.extend(data)
             except (IOError, json.JSONDecodeError) as e:
                 logging.error(f"Error loading data from {filename}: {str(e)}")
     return cve_data

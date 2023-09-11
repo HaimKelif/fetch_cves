@@ -2,19 +2,75 @@ import typer
 import json
 import requests
 from datetime import datetime, timedelta
-from typing import Optional
-import threading
 import os
 import logging
+import concurrent.futures
+import nvd_api
+import time
 
 
 app = typer.Typer()
 
-BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-RESULTS_PER_PAGE = 50
-MAX_DAYS = 120
+RESULTS_PER_PAGE = 2000
+RESULTS_PER_FILE = 50
+MAX_DAYS_RANGE_API = 120
+MAX_REQUESTS_PER_30_SECONDS = 5  # 5 with no API key; 50 with an API key
+SECONDS = 32
 
 logging.basicConfig(level=logging.INFO)
+
+
+def date_chunks_by_api_size(
+    start_date: datetime, end_date: datetime
+) -> list[tuple((datetime, datetime))]:
+    """
+    Returns a list of chuncks of the given dates range.
+
+    @params:    start_date: datetime, end_date: datetime
+    @output: list[tuple((datetime, datetime))]
+    """
+    date_range = []
+    current_date = start_date
+    while current_date <= end_date:
+        chunk_end_date = min(
+            current_date + timedelta(days=MAX_DAYS_RANGE_API), end_date
+        )
+        date_range.append((current_date, chunk_end_date))
+        current_date += timedelta(days=MAX_DAYS_RANGE_API)
+    return date_range
+
+
+def chunk_list(input_list: list) -> list[list]:
+    """
+    Returns a list of chuncks of the givven list.
+
+    @params:    input_list: list
+    @output: list[list]
+    """
+    for i in range(0, len(input_list), RESULTS_PER_FILE):
+        yield input_list[i : i + RESULTS_PER_FILE]
+
+
+def save_cves(cves: list, output_directory: str, end_date: datetime, start_index: int):
+    """
+    save CVEs for the given date range to a file.
+
+    @params:    cves: list, output_directory: str,
+                end_date: datetime, start_index: int
+    @output: None
+    """
+    sublists_cves = list(chunk_list(cves))
+    for sublist in sublists_cves:
+        try:
+            with open(
+                f"{output_directory}/cves-{end_date.date()}-{start_index}.json", "w"
+            ) as f:
+                json.dump(sublist, f)
+            start_index += RESULTS_PER_FILE
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching data: {e}")
+        except Exception as e:
+            logging.error(f"Error: {e}")
 
 
 def fetch_cves_and_save(
@@ -24,109 +80,69 @@ def fetch_cves_and_save(
     output_directory: str,
 ):
     """
-    Fetch CVEs for the given date range and save them to a file.
+    Fetch CVEs for the given date range.
 
     @params:    start_date: datetime, end_date: datetime,
                 start_index: int, output_directory: str
     @output: None
     """
-    params = {
-        "pubStartDate": start_date.isoformat(),
-        "pubEndDate": end_date.isoformat(),
-        "startIndex": start_index,
-        "resultsPerPage": RESULTS_PER_PAGE,
-    }
-
-    try:
-        response = requests.get(BASE_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-        with open(
-            f"{output_directory}/cves-{end_date.date()}-{start_index}.json", "w"
-        ) as f:
-            json.dump(data, f)
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching data: {e}")
-    except Exception as e:
-        logging.error(f"Error: {e}")
-
-
-def get_total_results(
-    start_date: datetime,
-    end_date: datetime,
-) -> str:
-    """
-    Fetch the total number of results for the given date range.
-
-    @params: start_date: datetime, end_date: datetime,
-    @output: str
-    """
-    params = {
-        "pubStartDate": start_date.isoformat(),
-        "pubEndDate": end_date.isoformat(),
-        "startIndex": 0,
-        "resultsPerPage": 1,
-    }
-    try:
-        response = requests.get(BASE_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-        return data["totalResults"]
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching data: {e}")
-    except Exception as e:
-        logging.error(f"Error: {e}")
-    return 0
+    save_cves(
+        nvd_api.get_cves(start_date, end_date, start_index),
+        output_directory,
+        end_date,
+        start_index,
+    )
 
 
 def download_cves_threaded(
-    total_results: int, date_start: datetime, date_end: datetime, output_directory: str
+    date_chunks: list[tuple((datetime, datetime))], output_directory: str
 ):
     """
     Download CVE data from the NVD in a multithreaded manner and save it.
+    The function sleeps for 32/5 seconds (if there is a key to API 32/50) between requests as required by the API.
 
     @params: total_results: int, date_start: datetime, date_end: datetime, output_directory: str
     @output: None
     """
-    threads = []
-    for index in range(0, total_results, RESULTS_PER_PAGE):
-        threads.append(
-            threading.Thread(
-                target=fetch_cves_and_save,
-                args=(date_start, date_end, index, output_directory),
-            )
-        )
-        threads[-1].start()
-
-    for t in threads:
-        t.join()
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=MAX_REQUESTS_PER_30_SECONDS
+    ) as executor:
+        for date_chunk in date_chunks:
+            time.sleep(SECONDS / MAX_REQUESTS_PER_30_SECONDS)
+            total_results = nvd_api.get_total_results(date_chunk[0], date_chunk[1])
+            if total_results > 0:
+                for index in range(0, total_results, RESULTS_PER_PAGE):
+                    time.sleep(SECONDS / MAX_REQUESTS_PER_30_SECONDS)
+                    executor.submit(
+                        fetch_cves_and_save,
+                        date_chunk[0],
+                        date_chunk[1],
+                        index,
+                        output_directory,
+                    )
 
 
 @app.command()
-def fetch_cves(days_back: int = MAX_DAYS, output_directory: str = "cve_data"):
+def fetch_cves(days_back: int = MAX_DAYS_RANGE_API, output_directory: str = "cve_data"):
     """
     Fetch CVEs for the specified number of days back and save them in the output directory.
 
     @params: days_back: int, output_directory: str (Typer)
     @output: None
     """
-    today = datetime.now()
-    if not os.path.exists(output_directory):
-        os.makedirs(output_directory)
+    current_today = datetime.now()
 
-    for days in range(days_back, 0, -MAX_DAYS):
-        if days > MAX_DAYS:
-            date_start = today - timedelta(days=MAX_DAYS)
-        else:
-            date_start = today - timedelta(days=days)
+    os.makedirs(output_directory, exist_ok=True)
 
-        total_results = get_total_results(date_start, today)
+    day_chunks = date_chunks_by_api_size(
+        current_today - timedelta(days=days_back), current_today
+    )
 
-        if total_results > 0:
-            logging.info(f"Downloading CVEs for {date_start.date()} to {today.date()}")
-            download_cves_threaded(total_results, date_start, today, output_directory)
+    logging.info(
+        f"Downloading CVEs for {(current_today - timedelta(days=days_back)).date()} to {current_today.date()}"
+    )
 
-        today = date_start
+    download_cves_threaded(day_chunks, output_directory)
 
 
 if __name__ == "__main__":

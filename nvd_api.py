@@ -5,8 +5,8 @@ import time
 
 
 BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-RESULTS_PER_PAGE = 2000
-MAX_REQUESTS_PER_SECONDS = 5 # 5 with no API key; 50 with an API key
+RESULTS_PER_PAGE = 2000  # pagination max by NVD API
+MAX_REQUESTS_PER_SECONDS = 5  # 5 with no API key; 50 with an API key
 SECONDS = 32
 
 

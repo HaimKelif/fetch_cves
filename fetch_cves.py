@@ -11,7 +11,7 @@ import time
 
 app = typer.Typer()
 
-RESULTS_PER_PAGE = 2000
+RESULTS_PER_PAGE = 2000  # pagination max by NVD API
 RESULTS_PER_FILE = 50
 MAX_DAYS_RANGE_API = 120
 MAX_REQUESTS_PER_30_SECONDS = 5  # 5 with no API key; 50 with an API key
